@@ -1,0 +1,153 @@
+#include <iostream>
+#include <thread>
+#include <vector>
+#include <cmath>
+#include <chrono>
+#include <random>
+#include <mutex>
+#include <atomic>
+#include <string>
+
+//Добавляем русский язык в вывод
+bool chcp(unsigned codepage)
+{
+	auto command = "chcp " + std::to_string(codepage);
+	return !std::system(command.c_str());
+}
+
+static bool codepage_is_set = chcp(1251);
+
+using namespace std;
+using namespace std::chrono;
+
+const long long n = 10000000;   //Задаём кол-во элементов в массиве 
+const int thread_count = 4;     //Задаём кол-во потоков
+long long sum = 0;              //Задаём переменную для общей суммы
+int arr[n];                     //Создаём сам массив
+vector<int> result(thread_count, 0);   //Создаём вектор для хранения локальных сумм от каждого потока
+atomic<long long>total(0);             //Атомарная переменная для хранения общей суммы 
+mutex mtx;                             //Мьютекс для синхронизации доступа к переменной 
+
+
+//Функция, которую будет выполнять каждый поток, здесь мы используем атомарные операции для безопасного обновления переменной total
+void atomic_local_sum(int arr[], int id) {
+	int flow_size = n / thread_count;
+	int start = id * flow_size;
+	int end = 0;
+	if (id == thread_count - 1) {
+		end = n;
+	}
+	else {
+		end = (id + 1) * flow_size;
+	}
+	long long local_sum = 0;
+	for (int i = start; i < end; ++i) {
+		local_sum += arr[i];
+	}
+	total += local_sum;
+}
+
+//Функция, аналогичная функции выше, но здесь мы используем mutex
+void mutex_local_sum(int arr[], int id) {
+	int flow_size = n / thread_count;
+	int start = id * flow_size;
+	int end = 0;
+	if (id == thread_count - 1) {
+		end = n;
+	}
+	else {
+		end = (id + 1) * flow_size;
+	}
+	long long local_sum = 0;
+	for (int i = start; i < end; ++i) {
+		local_sum += arr[i];
+	}
+	lock_guard<mutex> lock(mtx);    //используем мьютекс для защиты доступа к общей переменной sum
+	sum += local_sum;
+}
+
+//Функция, аналогичная функции выше, но здесь мы не используем синхронизацию
+void unsync_local_sum(int arr[], int id) {
+	int flow_size = n / thread_count;     //Вычисления кол-во элементов, котроые будут обрабатываться одним потоком
+	int start = id * flow_size;           //Вычисление начала диапазона в массиве для потока с этим id
+	int end = 0;                          //Создание переменной для хранения конца диапазона
+	//Конструкция для определения конца диапазона, как в задаче 1
+	if (id == thread_count - 1) {
+		end = n;
+	}
+	else {
+		end = (id + 1) * flow_size;
+	}
+	long long local_sum = 0;           //Переменная для локальной суммы
+	//Цикл для суммы элементов массива в диапозоне
+	for (int i = start; i < end; ++i) {
+		local_sum += arr[i];
+	}
+	result[id] = local_sum;           //Сохранение локальной суммы в векторе result
+}
+
+//Основная функция
+int main() {
+	vector<thread> threads;       //Обьявляем вектор потоков
+	std::random_device rd;        //Обьявляем генератор случайных чисел
+	mt19937 gen(rd());
+	uniform_int_distribution<int> dist(0, 100);        //Задаём диапазон случанйых значений (от 0 до 100)
+
+	//Заполняем массив случайными числами
+	for (int i = 0; i < n; ++i) {
+		arr[i] = dist(gen);
+	}
+
+	//Блок для работы потоков с использованием атомарных переменных
+	auto start_atomic = high_resolution_clock::now();
+	for (int i = 0; i < thread_count; ++i) {
+		threads.emplace_back(atomic_local_sum, arr, i);  //Создаём потоки, которые выполняют функцию atomic_local_sum 
+	}
+
+	for (auto& t : threads) {
+		t.join();               //Ожиданием завершения потоков
+	}
+	auto end_atomic = high_resolution_clock::now();     //Записываем конечное время
+	threads.clear(); //Очистка вектора потоков
+	//Вывод результата
+	cout << "Сумма всех элементов: " << total << endl;
+	cout << "Затраченное время: " << duration_cast<nanoseconds>(end_atomic - start_atomic).count() << " ns" << endl;
+
+	//Блок для работы потоков с использованием mutex
+	auto start_mutex = high_resolution_clock::now();    //Записываем начальное время 
+	sum = 0;
+	for (int i = 0; i < thread_count; ++i) {
+		threads.emplace_back(mutex_local_sum, arr, i);  //Создаём потоки, которые выполняют функцию mutex_local_sum
+	}
+
+	for (auto& t : threads) {
+		t.join();                 //Ожидание завершения потоков
+	}
+	auto end_mutex = high_resolution_clock::now(); //Записываем конечное время
+	threads.clear();
+	//Выводим результат
+	cout << "Сумма всех элементов: " << sum << endl;
+	cout << "Затраченное время: " << duration_cast<nanoseconds>(end_mutex - start_mutex).count() << " ns" << endl;
+
+
+
+	//Блок для работы потоков без синхронизации
+	auto start_unsync = high_resolution_clock::now(); //Записываем начальное время
+	for (int i = 0; i < thread_count; ++i) {
+		threads.emplace_back(unsync_local_sum, arr, i);  //Создаём потоки, которые выполняют функцию, не имеющую синхронизации
+	}
+
+	for (auto& t : threads) {
+		t.join();            //Ожидание завершения потоков
+	}
+	long long sum_unsync = 0;
+	//Суммирование локальных суммиз вектора result для получения общей суммы
+	for (int part : result) {
+		sum_unsync += part;
+	}
+	auto end_unsync = high_resolution_clock::now();   //Запись конца времени
+	cout << "Сумма всех элементов: " << sum_unsync << endl;
+	//Выводим затраченое время в миллисекундах
+	cout << "Затраченное время: " << duration_cast<nanoseconds>(end_unsync - start_unsync).count() << " ns" << endl;
+	return 0;
+}
