@@ -1,0 +1,88 @@
+#include <iostream>
+#include <thread>
+#include <vector>
+#include <cmath>
+#include <chrono>
+#include <string>
+
+//Добавляем русский язык в вывод
+bool chcp(unsigned codepage)
+{
+	auto command = "chcp " + std::to_string(codepage);
+	return !std::system(command.c_str());
+}
+
+static bool codepage_is_set = chcp(1251);
+
+using namespace std;
+using namespace std::chrono;
+
+const int n = 100000;            //Определяем константу N
+const int threads_count = 4;      //Определяем кол-во потоков
+vector<int> counts(threads_count, 0);  //Создаём вектор для хранения кол-ва найденных простых чисел для каждого потока
+
+//Функция, которая будет выполнятся в каждом потоке
+void thread_function(int id) {
+	int arr[n];         //Создаём массив, где будут находится числа
+	for (int i = 0; i < n; i++) {   //Заполнение массива числами
+		arr[i] = i;
+	}
+
+	int quantity = 0;   //Переменная для хранения кол-ва найденных чисел
+	int end = 0;         //Переменная для определеения конца диапозона  
+	int flow_size = n / threads_count; //Вычисление размера диапозона для каждого потока
+	int start = id * flow_size;        //Вычисление начала диапозона 
+	if (id == threads_count - 1) {  //Условие для последнего размещения конца диапазона
+		end = n;
+	}
+	else {                         //Если это не последний поток, то устанавливаем конец диапозона для следующего потока
+		end = (id + 1) * flow_size;
+	}
+	//Цикл по числам в диапозоне каждого потока
+	for (int i = start; i < end; i++) {
+		bool flag = true;    //Флаг, который будет указывать, является ли число простым
+		if (arr[i] == 0 || arr[i] == 1) {  //Условия для чисел 0 и 1, так как они не являются простыми
+			flag = false;
+		}
+		//Цикл для проверки делимости числа на все числа от 2 до кратного корня из этого числа
+		for (int j = 2; j <= sqrt(arr[i]); ++j) {
+			if (arr[i] % j == 0) {
+				flag = false;
+				break;
+			}
+		}
+		if (flag == true) {
+			quantity++;
+		}
+
+	}
+	counts[id] = quantity;  //Сохраняем кол-во найденных простых чисел для текущего потока
+}
+//Основная функция 
+int main() {
+	vector<thread> threads;   //Вектор для хранения потоков
+
+	auto start = high_resolution_clock::now(); //Запись текущего времени
+
+	//Цикл для создания потоков
+	for (int i = 0; i < threads_count; ++i) {
+		threads.emplace_back(thread_function, i);  //Создание нового потока, который выполняет функцию thread_function, и имеет идентификатор i
+	}
+	//Цикл по всем потокам
+	for (auto& t : threads) {
+		t.join();          //Ожидание заврешения потока
+	}
+
+	int total = 0;        //Переменная для хранения общего кол-ва найденных простых чисел
+	//Цикл, который суммирует кол-во простых чисел, найденных каждым потоком, в переменную total
+	for (int quantity : counts) {
+		total += quantity;
+	}
+
+	auto end = high_resolution_clock::now();  //Запись времени окончания
+	cout << "Общее кол-во найденных простых чисел: " << total << endl;
+	//Вывод времени программы в миллисекундах
+	cout << "Затраченное время: " << duration_cast<milliseconds>(end - start).count() << " ms" << endl;
+
+	return 0;
+}
