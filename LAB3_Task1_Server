@@ -4,6 +4,12 @@
 #include <algorithm>
 
 using boost::asio::ip::tcp;
+bool chcp(unsigned codepage)
+{
+    auto command = "chcp " + std::to_string(codepage);
+    return !std::system(command.c_str());
+}
+static bool codepage_is_set = chcp(1251);
 
 int main() {
     try {
